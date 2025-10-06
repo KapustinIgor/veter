@@ -1,122 +1,380 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'models/message.dart';
+import 'services/crypto_service.dart';
+import 'services/storage_service.dart';
+import 'services/network_service.dart';
 
-void main() {
-  runApp(const MyApp());
-}
+/// Main app widget
+class VeterApp extends StatelessWidget {
+  const VeterApp({super.key});
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => CryptoService()),
+        ChangeNotifierProvider(create: (_) => StorageService()),
+        ChangeNotifierProvider(create: (_) => NetworkService()),
+        ChangeNotifierProvider(create: (_) => ChatProvider()),
+      ],
+      child: MaterialApp(
+        title: 'Veter',
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF1976D2),
+            brightness: Brightness.light,
+          ),
+          useMaterial3: true,
+          appBarTheme: const AppBarTheme(
+            centerTitle: true,
+            elevation: 0,
+          ),
+        ),
+        darkTheme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF1976D2),
+            brightness: Brightness.dark,
+          ),
+          useMaterial3: true,
+          appBarTheme: const AppBarTheme(
+            centerTitle: true,
+            elevation: 0,
+          ),
+        ),
+        home: const ChatScreen(),
+        debugShowCheckedModeBanner: false,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+/// Chat provider for state management
+class ChatProvider extends ChangeNotifier {
+  final List<Message> _messages = [];
+  final List<Room> _rooms = [];
+  String? _currentRoomId;
+  User? _currentUser;
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
+  List<Message> get messages => _messages;
+  List<Room> get rooms => _rooms;
+  String? get currentRoomId => _currentRoomId;
+  User? get currentUser => _currentUser;
 
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
+  void setCurrentRoom(String roomId) {
+    _currentRoomId = roomId;
+    notifyListeners();
+  }
 
-  final String title;
+  void addMessage(Message message) {
+    _messages.add(message);
+    notifyListeners();
+  }
 
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  void addRoom(Room room) {
+    _rooms.add(room);
+    notifyListeners();
+  }
+
+  void setCurrentUser(User user) {
+    _currentUser = user;
+    notifyListeners();
+  }
+
+  List<Message> getMessagesForRoom(String roomId) {
+    return _messages.where((m) => m.roomId == roomId).toList();
+  }
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+/// Main chat screen
+class ChatScreen extends StatefulWidget {
+  const ChatScreen({super.key});
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+  @override
+  State<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends State<ChatScreen> {
+  final TextEditingController _messageController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    // Initialize services
+    final cryptoService = context.read<CryptoService>();
+    final storageService = context.read<StorageService>();
+    final networkService = context.read<NetworkService>();
+    
+    await cryptoService.initialize();
+    await storageService.initialize();
+    await networkService.initialize();
+    
+    // Create demo user and room
+    final user = User(
+      id: 'user-1',
+      username: 'demo_user',
+      displayName: 'Demo User',
+      createdAt: DateTime.now(),
+    );
+    
+    final room = Room(
+      id: 'room-1',
+      name: 'General',
+      type: RoomType.group,
+      members: ['user-1'],
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    
+    context.read<ChatProvider>()
+      ..setCurrentUser(user)
+      ..addRoom(room)
+      ..setCurrentRoom(room.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Veter'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.videocam),
+            onPressed: _startVideoCall,
+          ),
+          IconButton(
+            icon: const Icon(Icons.phone),
+            onPressed: _startAudioCall,
+          ),
+          PopupMenuButton<String>(
+            onSelected: _handleMenuAction,
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'settings',
+                child: Text('Settings'),
+              ),
+              const PopupMenuItem(
+                value: 'logout',
+                child: Text('Logout'),
+              ),
+            ],
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: Consumer<ChatProvider>(
+              builder: (context, chatProvider, child) {
+                final messages = chatProvider.getMessagesForRoom(
+                  chatProvider.currentRoomId ?? '',
+                );
+                
+                return ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.all(16),
+                  itemCount: messages.length,
+                  itemBuilder: (context, index) {
+                    final message = messages[index];
+                    return MessageBubble(message: message);
+                  },
+                );
+              },
+            ),
+          ),
+          _buildMessageInput(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessageInput() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(
+          top: BorderSide(
+            color: Theme.of(context).dividerColor,
+            width: 1,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.attach_file),
+            onPressed: _attachFile,
+          ),
+          Expanded(
+            child: TextField(
+              controller: _messageController,
+              decoration: const InputDecoration(
+                hintText: 'Type a message...',
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+              ),
+              maxLines: null,
+              textCapitalization: TextCapitalization.sentences,
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.send),
+            onPressed: _sendMessage,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _sendMessage() {
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
+
+    final chatProvider = context.read<ChatProvider>();
+    final message = Message.create(
+      roomId: chatProvider.currentRoomId ?? '',
+      senderId: chatProvider.currentUser?.id ?? '',
+      senderDeviceId: 'device-1',
+      content: MessageContent.text(text),
+    );
+
+    chatProvider.addMessage(message);
+    _messageController.clear();
+    
+    // Scroll to bottom
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
     });
   }
 
+  void _attachFile() {
+    // TODO: Implement file attachment
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('File attachment not implemented yet')),
+    );
+  }
+
+  void _startVideoCall() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Video calling not implemented yet')),
+    );
+  }
+
+  void _startAudioCall() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Audio calling not implemented yet')),
+    );
+  }
+
+  void _handleMenuAction(String action) {
+    switch (action) {
+      case 'settings':
+        // TODO: Navigate to settings
+        break;
+      case 'logout':
+        // TODO: Implement logout
+        break;
+    }
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+}
+
+/// Message bubble widget
+class MessageBubble extends StatelessWidget {
+  final Message message;
+
+  const MessageBubble({super.key, required this.message});
+
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
+    final isText = message.content.type == MessageContentType.text;
+    final isSystem = message.content.type == MessageContentType.system;
+    
+    if (isSystem) {
+      return Center(
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceVariant,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Text(
+            message.content.text ?? '',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (isText)
+                    Text(
+                      message.content.text ?? '',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _formatTime(message.createdAt),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
+  }
+
+  String _formatTime(DateTime time) {
+    final now = DateTime.now();
+    final difference = now.difference(time);
+    
+    if (difference.inDays > 0) {
+      return '${time.day}/${time.month}/${time.year}';
+    } else if (difference.inHours > 0) {
+      return '${time.hour}:${time.minute.toString().padLeft(2, '0')}';
+    } else {
+      return '${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
+    }
   }
 }
