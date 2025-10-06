@@ -1,0 +1,31 @@
+# General
+.DS_Store
+*.log
+build/
+dist/
+.idea/
+.vscode/
+
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+pubspec.lock
+ios/Pods/
+macos/Pods/
+Generated.xcconfig
+
+# Rust/Cargo
+target/
+Cargo.lock
+
+# Node (if used for tooling)
+node_modules/
+
+# OS/Editor
+*.swp
+*.swo
+Thumbs.db
+
+
